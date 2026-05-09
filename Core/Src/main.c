@@ -51,6 +51,8 @@ static ServoManager servo_mgr;
 
 static RC522_Uid last_uid = {.size = 0U};
 static uint32_t last_uid_tick = 0U;
+static uint32_t scan_led_until = 0U;
+static uint32_t last_no_card_log_tick = 0U;
 
 static const RC522_Uid valid_uids[] = {
     {.bytes = {0xDE, 0xAD, 0xBE, 0xEF}, .size = 4},
@@ -64,10 +66,16 @@ static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 static void LogUid(const RC522_Uid *uid, bool valid);
+static void LogText(const char *msg);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void LogText(const char *msg)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)msg, (uint16_t)strlen(msg), 100U);
+}
+
 static void LogUid(const RC522_Uid *uid, bool valid)
 {
   char msg[96];
@@ -126,7 +134,9 @@ int main(void)
   hrc522.rst_port = RC522_RST_GPIO_Port;
   hrc522.rst_pin = RC522_RST_Pin;
 
+  LogText("[BOOT] Starting RC522/UID app...\r\n");
   RC522_Init(&hrc522);
+  LogText("[BOOT] RC522 initialized. Waiting for cards...\r\n");
 
   ServoManager_Init(&servo_mgr, 20000U);
   ServoManager_Add(&servo_mgr, SERVO1_GPIO_Port, SERVO1_Pin, 500U, 2500U);
@@ -144,6 +154,12 @@ int main(void)
     /* USER CODE BEGIN 3 */
     RC522_Uid uid;
     bool valid = false;
+    if (HAL_GetTick() < scan_led_until) {
+      HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+    } else {
+      HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+    }
+
     if (RC522_ReadUid(&hrc522, &uid)) {
       for (uint32_t i = 0; i < (sizeof(valid_uids) / sizeof(valid_uids[0])); i++) {
         if (uid.size == valid_uids[i].size && memcmp(uid.bytes, valid_uids[i].bytes, uid.size) == 0) {
@@ -151,6 +167,8 @@ int main(void)
           break;
         }
       }
+
+      scan_led_until = HAL_GetTick() + 500U;
 
       HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, valid ? GPIO_PIN_SET : GPIO_PIN_RESET);
       HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, valid ? GPIO_PIN_RESET : GPIO_PIN_SET);
@@ -163,6 +181,11 @@ int main(void)
     } else {
       HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
       HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+
+      if ((HAL_GetTick() - last_no_card_log_tick) > 2000U) {
+        LogText("[RFID] No card detected.\r\n");
+        last_no_card_log_tick = HAL_GetTick();
+      }
     }
 
     ServoManager_Task(&servo_mgr);
