@@ -21,7 +21,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "rc522.h"
+#include "servo_manager.h"
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +46,16 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+static RC522_Handle hrc522;
+static ServoManager servo_mgr;
 
+static RC522_Uid last_uid = {.size = 0U};
+static uint32_t last_uid_tick = 0U;
+
+static const RC522_Uid valid_uids[] = {
+    {.bytes = {0xDE, 0xAD, 0xBE, 0xEF}, .size = 4},
+    {.bytes = {0x12, 0x34, 0x56, 0x78}, .size = 4},
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -51,12 +63,25 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void LogUid(const RC522_Uid *uid, bool valid);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+static void LogUid(const RC522_Uid *uid, bool valid)
+{
+  char msg[96];
+  int len = snprintf(msg, sizeof(msg), "UID[%lu]:", (unsigned long)uid->size);
+  for (uint8_t i = 0; (i < uid->size) && (len > 0) && (len < (int)sizeof(msg) - 5); i++) {
+    len += snprintf(&msg[len], sizeof(msg) - (size_t)len, " %02X", uid->bytes[i]);
+  }
+  if (len > 0 && len < (int)sizeof(msg) - 10) {
+    len += snprintf(&msg[len], sizeof(msg) - (size_t)len, " -> %s\r\n", valid ? "VALID" : "INVALID");
+  }
+  if (len > 0) {
+    HAL_UART_Transmit(&huart2, (uint8_t*)msg, (uint16_t)len, 100U);
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -89,8 +114,25 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  /* USER CODE BEGIN 2 */
+    /* USER CODE BEGIN 2 */
+  hrc522.sck_port = RC522_SCK_GPIO_Port;
+  hrc522.sck_pin = RC522_SCK_Pin;
+  hrc522.miso_port = RC522_MISO_GPIO_Port;
+  hrc522.miso_pin = RC522_MISO_Pin;
+  hrc522.mosi_port = RC522_MOSI_GPIO_Port;
+  hrc522.mosi_pin = RC522_MOSI_Pin;
+  hrc522.nss_port = RC522_NSS_GPIO_Port;
+  hrc522.nss_pin = RC522_NSS_Pin;
+  hrc522.rst_port = RC522_RST_GPIO_Port;
+  hrc522.rst_pin = RC522_RST_Pin;
 
+  RC522_Init(&hrc522);
+
+  ServoManager_Init(&servo_mgr, 20000U);
+  ServoManager_Add(&servo_mgr, SERVO1_GPIO_Port, SERVO1_Pin, 500U, 2500U);
+  ServoManager_Add(&servo_mgr, SERVO2_GPIO_Port, SERVO2_Pin, 500U, 2500U);
+  ServoManager_SetAngle(&servo_mgr, 0U, 90U);
+  ServoManager_SetAngle(&servo_mgr, 1U, 90U);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -100,6 +142,30 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    RC522_Uid uid;
+    bool valid = false;
+    if (RC522_ReadUid(&hrc522, &uid)) {
+      for (uint32_t i = 0; i < (sizeof(valid_uids) / sizeof(valid_uids[0])); i++) {
+        if (uid.size == valid_uids[i].size && memcmp(uid.bytes, valid_uids[i].bytes, uid.size) == 0) {
+          valid = true;
+          break;
+        }
+      }
+
+      HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, valid ? GPIO_PIN_SET : GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, valid ? GPIO_PIN_RESET : GPIO_PIN_SET);
+
+      if ((uid.size != last_uid.size) || (memcmp(uid.bytes, last_uid.bytes, uid.size) != 0) || ((HAL_GetTick() - last_uid_tick) > 1000U)) {
+        LogUid(&uid, valid);
+        last_uid = uid;
+        last_uid_tick = HAL_GetTick();
+      }
+    } else {
+      HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+    }
+
+    ServoManager_Task(&servo_mgr);
   }
   /* USER CODE END 3 */
 }
@@ -218,6 +284,30 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, RC522_RST_Pin|LED_GREEN_Pin|LED_RED_Pin|SERVO1_Pin|SERVO2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(RC522_NSS_GPIO_Port, RC522_NSS_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pins : RC522_SCK_Pin RC522_MOSI_Pin RC522_NSS_Pin */
+  GPIO_InitStruct.Pin = RC522_SCK_Pin|RC522_MOSI_Pin|RC522_NSS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : RC522_MISO_Pin */
+  GPIO_InitStruct.Pin = RC522_MISO_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : RC522_RST_Pin LED_GREEN_Pin LED_RED_Pin SERVO1_Pin SERVO2_Pin */
+  GPIO_InitStruct.Pin = RC522_RST_Pin|LED_GREEN_Pin|LED_RED_Pin|SERVO1_Pin|SERVO2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD3_Pin */
   GPIO_InitStruct.Pin = LD3_Pin;
