@@ -70,6 +70,25 @@ void Error_Handler(void);
 #define LD3_Pin GPIO_PIN_3
 #define LD3_GPIO_Port GPIOB
 
+#define RC522_SCK_Pin GPIO_PIN_5
+#define RC522_SCK_GPIO_Port GPIOA
+#define RC522_MISO_Pin GPIO_PIN_6
+#define RC522_MISO_GPIO_Port GPIOA
+#define RC522_MOSI_Pin GPIO_PIN_7
+#define RC522_MOSI_GPIO_Port GPIOA
+#define RC522_NSS_Pin GPIO_PIN_4
+#define RC522_NSS_GPIO_Port GPIOA
+#define RC522_RST_Pin GPIO_PIN_0
+#define RC522_RST_GPIO_Port GPIOB
+#define LED_GREEN_Pin GPIO_PIN_4
+#define LED_GREEN_GPIO_Port GPIOB
+#define LED_RED_Pin GPIO_PIN_5
+#define LED_RED_GPIO_Port GPIOB
+#define SERVO1_Pin GPIO_PIN_6
+#define SERVO1_GPIO_Port GPIOB
+#define SERVO2_Pin GPIO_PIN_7
+#define SERVO2_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
