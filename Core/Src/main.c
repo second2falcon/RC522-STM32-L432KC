@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include "rc522.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,7 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+SPI_HandleTypeDef hspi1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -51,12 +52,17 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
+static void MX_SPI1_Init(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+/* Retarget printf to USART2 via syscalls.c _write → __io_putchar chain */
+int __io_putchar(int ch)
+{
+    HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+    return ch;
+}
 /* USER CODE END 0 */
 
 /**
@@ -90,7 +96,9 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  MX_SPI1_Init();
+  RC522_Init();
+  printf("RC522 RFID Reader Ready\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -100,8 +108,27 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    uint8_t uid[5];
+    uint8_t uid_len;
+
+    if (RC522_ReadCardUID(uid, &uid_len) == MI_OK)
+    {
+      HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+
+      printf("Card UID:");
+      for (uint8_t i = 0; i < uid_len; i++)
+      {
+        printf(" %02X", uid[i]);
+      }
+      printf("\r\n");
+
+      HAL_Delay(100);
+      HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+    }
+
+    HAL_Delay(400);
+    /* USER CODE END 3 */
   }
-  /* USER CODE END 3 */
 }
 
 /**
@@ -232,6 +259,63 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+  * @brief SPI1 Initialization Function
+  *   PA5 = SPI1_SCK (AF5)   PA6 = SPI1_MISO (AF5)   PA7 = SPI1_MOSI (AF5)
+  *   PA4 = RC522_CS  (GPIO output, active LOW)
+  *   PB0 = RC522_RST (GPIO output, active HIGH)
+  */
+static void MX_SPI1_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_SPI1_CLK_ENABLE();
+  /* GPIOA and GPIOB clocks already enabled by MX_GPIO_Init */
+
+  /* PA5=SCK, PA6=MISO, PA7=MOSI — alternate function SPI1 */
+  GPIO_InitStruct.Pin       = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull      = GPIO_NOPULL;
+  GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* PA4 = CS, start HIGH (deselected) */
+  HAL_GPIO_WritePin(SPI_CS_GPIO_Port, SPI_CS_Pin, GPIO_PIN_SET);
+  GPIO_InitStruct.Pin       = SPI_CS_Pin;
+  GPIO_InitStruct.Mode      = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull      = GPIO_NOPULL;
+  GPIO_InitStruct.Speed     = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = 0;
+  HAL_GPIO_Init(SPI_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /* PB0 = RST, start HIGH (not in reset) */
+  HAL_GPIO_WritePin(RC522_RST_GPIO_Port, RC522_RST_Pin, GPIO_PIN_SET);
+  GPIO_InitStruct.Pin = RC522_RST_Pin;
+  HAL_GPIO_Init(RC522_RST_GPIO_Port, &GPIO_InitStruct);
+
+  /* SPI1: master, mode 0 (CPOL=0, CPHA=0), 8-bit, MSB, software NSS */
+  hspi1.Instance               = SPI1;
+  hspi1.Init.Mode              = SPI_MODE_MASTER;
+  hspi1.Init.Direction         = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize          = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity       = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase          = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS               = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;  /* 32 MHz / 8 = 4 MHz */
+  hspi1.Init.FirstBit          = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode            = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation    = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial     = 7;
+  hspi1.Init.CRCLength         = SPI_CRC_LENGTH_DATASIZE;
+  hspi1.Init.NSSPMode          = SPI_NSS_PULSE_DISABLE;
+
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
 
 /* USER CODE END 4 */
 

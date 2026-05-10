@@ -72,6 +72,11 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+#define SPI_CS_Pin          GPIO_PIN_4
+#define SPI_CS_GPIO_Port    GPIOA
+#define RC522_RST_Pin       GPIO_PIN_0
+#define RC522_RST_GPIO_Port GPIOB
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
